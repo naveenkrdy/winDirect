@@ -52,3 +52,7 @@ After the installation process is complete, reboot to access the Windows operati
 **Note:** If you are using opencore or clover select the windows volume from bootloader menu.
 
 7.  Done!
+
+### Credits
+* [winlib](https://wimlib.net/) - Windows imaging library
+* [libntfs-3g](https://github.com/tuxera/ntfs-3g) - NTFS r/w driver
