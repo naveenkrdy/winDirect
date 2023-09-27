@@ -7,7 +7,7 @@
 # Discription: Script to install Windows OS from within macOS without using a USB stick or bootcamp.
 VERSION=1.0
 
-set -e
+# set -e
 
 error_exit() {
 	echo "[Error]: $1"
@@ -69,7 +69,7 @@ mount_efi_partition() {
 	local target_volume_id="$1"
 	local efi_mount_point
 
-	if efi_mount_point=$(./Scripts/mount_efi.sh "$target_volume_id"); then
+	if ! efi_mount_point=$(./scripts/mount_efi.sh "$target_volume_id"); then
 		error_exit "Unable to mount EFI volume on target volume $target_volume_id"
 	fi
 
@@ -80,8 +80,10 @@ mount_target_volume() {
 	local target_volume_id="$1"
 	local target_volume_mount_point
 
-	if ! diskutil info "$target_volume_id" >/dev/null; then
+	if ! diskutil info "$target_volume_id" >/dev/null | grep -q "*Mounted: *No*"; then
 		diskutil mount "$target_volume_id" >/dev/null || error_exit "Unable to mount target volume $target_volume_id"
+	else 
+		error_exit "Target volume info is missing"
 	fi
 
 	target_volume_mount_point=$(diskutil info "$target_volume_id" | sed -n 's/.*Mount Point: *//p')
@@ -173,6 +175,7 @@ install_bootloader() {
 	mv ~/BCD "${efi_mount_point}/EFI/Microsoft/BOOT/BCD"
 
 	if ! [[ -e "${efi_mount_point}/EFI/Clover" || -e "${efi_mount_point}/EFI/OC" ]]; then
+		echo "[Info]: Opencore installed Windows bootloader on target disk $target_disk_id"
 		mkdir -p "${efi_mount_point}/EFI/BOOT/"
 		cp -R "${efi_mount_point}/EFI/Microsoft/BOOT/bootmgfw.efi" "${efi_mount_point}/EFI/BOOT/bootx64.efi"
 	fi
@@ -205,5 +208,5 @@ iso_volume_name=$(echo "$iso_mount_output" | grep -o '/Volumes/.*' | cut -f 1- |
 
 check_iso
 check_target
-install_windows
+# install_windows
 install_bootloader
