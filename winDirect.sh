@@ -5,7 +5,7 @@
 # Usage: ./winDirect.sh <target_volume_id> <iso_file_path>
 # Author : @naveenkrdy
 # Discription: Script to install Windows OS from within macOS without using a USB stick or bootcamp.
-VERSION=1.0
+VERSION=1.1
 
 # set -e
 
@@ -25,13 +25,72 @@ print_seperator() {
 	echo
 }
 
+copy() {
+  local src="$1"
+  local dst="$2"
+  
+  if [[ -e "$src" ]]; then
+    if [[ -d "$src" ]]; then
+      if [[ ! -d "$dst" ]]; then
+        mkdir -p "$dst" || error_exit "Failed to create destination directory: $dst"
+      fi
+      cp -R "$src"/* "$dst" || error_exit "Failed to copy $src to $dst"
+    else
+      if [[ -d "$dst" ]]; then
+        dst="$dst/$(basename "$src")"
+      fi
+      mkdir -p "$(dirname "$dst")" || error_exit "Failed to create destination directory: $(dirname "$dst")"
+      cp "$src" "$dst" || error_exit "Failed to copy $src to $dst"
+    fi
+  else
+    error_exit "$src file or directory doesn't exist"
+  fi
+}
+
+move() {
+  local src="$1"
+  local dst="$2"
+  
+  if [[ -e "$src" ]]; then
+    if [[ -d "$src" ]]; then
+      if [[ ! -d "$dst" ]]; then
+        mkdir -p "$dst" || error_exit "Failed to create destination directory: $dst"
+      fi
+      mv "$src"/* "$dst" || error_exit "Failed to move $src to $dst"
+    else
+      if [[ -d "$dst" ]]; then
+        dst="$dst/$(basename "$src")"
+      fi
+      mkdir -p "$(dirname "$dst")" || error_exit "Failed to create destination directory: $(dirname "$dst")"
+      mv "$src" "$dst" || error_exit "Failed to move $src to $dst"
+    fi
+  else
+    error_exit "$src file or directory doesn't exist"
+  fi
+}
+
+move() {
+  local src="$1"
+  local dst="$2"
+  
+  if [[ -e "$src" ]]; then
+    if [[ ! -d "$dst" ]]; then
+      mkdir -p "$dst" || error_exit "Failed to create destination directory: $dst"
+    fi
+    mv "$src" "$dst" || error_exit "Failed to move $src to $dst"
+  else
+    error_exit "$src file or directory doesn't exist"
+  fi
+}
+
+
 check_iso() {
 	echo "[Info]: ISO Path: $iso_file_path"
-	if ! [[ -e "${iso_volume_name}/sources/install.wim" || -e "${iso_volume_name}/sources/install.esd" ]]; then
+	if ! [[ -e "${iso_mount_point}/sources/install.wim" || -e "${iso_mount_point}/sources/install.esd" ]]; then
 		error_exit "Provided Windows installer ISO is not valid"
 	fi
 	echo "[Info]: Provided Windows installer ISO is valid"
-	echo "[Info]: Installer volume name is $iso_volume_name"
+	echo "[Info]: Installer volume name is $iso_mount_point"
 	echo "[Info]: Installer disk Id is $iso_disk_id"
 }
 
@@ -103,7 +162,7 @@ install_windows() {
 
 	echo "[Info]: Provided Windows installer ISO has the following editions: "
 	print_seperator
-	./bin/wiminfo ${iso_volume_name}/sources/install.* | grep 'Display Name:' | grep -v 'Boot' | sed -e 's/Display Name: //' | awk '{$1=$1};1' | nl -s '. ' | sed 's/^[[:space:]]*//' || error_exit "Failed to get windows editions list"
+	./bin/wiminfo ${iso_mount_point}/sources/install.* | grep 'Display Name:' | grep -v 'Boot' | sed -e 's/Display Name: //' | awk '{$1=$1};1' | nl -s '. ' | sed 's/^[[:space:]]*//' || error_exit "Failed to get windows editions list"
 	print_seperator
 	read -p "[Input] Enter the edition number: " edition_index
 	echo
@@ -127,7 +186,7 @@ install_windows() {
 
 	echo "[Install]: Installing Windows on target volume $target_volume_id"
 	print_seperator
-	sudo ./bin/wimapply ${iso_volume_name}/sources/install.* "$edition_index" /dev/${target_volume_id} || error_exit "Unable to install Windows on target volume $target_volume_id"
+	sudo ./bin/wimapply ${iso_mount_point}/sources/install.* "$edition_index" /dev/${target_volume_id} || error_exit "Unable to install Windows on target volume $target_volume_id"
 	print_seperator
 
 	mount_target_volume "$target_volume_id" >/dev/null
@@ -142,16 +201,14 @@ install_bootloader() {
 
 	if [[ -d "${efi_mount_point}/EFI/Microsoft" ]]; then
 		echo "[Install]: Removing existing Windows bootloader"
-		rm -rf "${efi_mount_point}/EFI/Microsoft"
+		rm -rf "${efi_mount_point}/EFI/Microsoft" && echo "done" || error_exit
 	fi
 
 	echo "[Install]: Creating Windows bootloader files on $efi_mount_point"
-	mkdir -p "${efi_mount_point}/EFI/Microsoft/BOOT/"
-	mkdir -p "${efi_mount_point}/EFI/Microsoft/Recovery/"
-	cp -R "${target_volume_mount_point}/Windows/Boot/EFI/" "${efi_mount_point}/EFI/Microsoft/BOOT"
-	cp -R "${target_volume_mount_point}/Windows/Boot/Fonts" "${efi_mount_point}/EFI/Microsoft/BOOT"
-	cp ./misc/BCD_rcv "${efi_mount_point}/EFI/Microsoft/Recovery/BCD"
-	cp ./misc/BCD ~/BCD
+	copy "${target_volume_mount_point}/Windows/Boot/EFI" "${efi_mount_point}/EFI/Microsoft/BOOT"
+	copy "${target_volume_mount_point}/Windows/Boot/Fonts" "${efi_mount_point}/EFI/Microsoft/BOOT"
+	copy ./misc/BCD_rcv "${efi_mount_point}/EFI/Microsoft/Recovery/BCD"
+	copy ./misc/BCD ~/BCD
 
 	echo "[Info]: Preparing patch for Windows bootloader"
 	target_disk_guid=$(ioreg -l | grep -ow -A40 "$target_disk_id" | grep -w UUID | sed 's/UUID//' | tr -d ' |="-')
@@ -172,14 +229,14 @@ install_bootloader() {
 	echo "[Install]: Applying patch to Windows bootloader"
 	sudo perl -pi -e "s|\x17\x18\x19\x20\x21\x22\x23\x24\x25\x26\x27\x28\x29\x30\x31\x32|$target_disk_guid_patch|g" ~/BCD
 	sudo perl -pi -e "s|\x01\x02\x03\x04\x05\x06\x07\x08\x09\x10\x11\x12\x13\x14\x15\x16|$target_volume_uuid_patch|g" ~/BCD
-	mv ~/BCD "${efi_mount_point}/EFI/Microsoft/BOOT/BCD"
+	move ~/BCD "${efi_mount_point}/EFI/Microsoft/BOOT"
 
 	if ! [[ -e "${efi_mount_point}/EFI/Clover" || -e "${efi_mount_point}/EFI/OC" ]]; then
-		echo "[Info]: Opencore installed Windows bootloader on target disk $target_disk_id"
-		mkdir -p "${efi_mount_point}/EFI/BOOT/"
-		cp -R "${efi_mount_point}/EFI/Microsoft/BOOT/bootmgfw.efi" "${efi_mount_point}/EFI/BOOT/bootx64.efi"
+		echo "[Info]: Opencore/Clover bootloader not found on target disk $target_disk_id"
+		echo "[Info]: Installing Windows Bootstrap"
+		copy "${efi_mount_point}/EFI/Microsoft/BOOT/bootmgfw.efi" "${efi_mount_point}/EFI/BOOT/bootx64.efi"
 	fi
-	# diskutil unmount "$efi_mount_point"
+	
 	echo "[Info]: Successfully installed Windows bootloader on target disk $target_disk_id"
 }
 
@@ -204,9 +261,12 @@ target_disk_id="disk${x}"
 iso_file_path=$2
 iso_mount_output=$(hdiutil mount "$iso_file_path") || error_exit "Failed to mount ISO file"
 iso_disk_id=$(echo "$iso_mount_output" | grep -o '/dev/disk[0-9]*')
-iso_volume_name=$(echo "$iso_mount_output" | grep -o '/Volumes/.*' | cut -f 1- | sed 's/ /\\ /g')
+iso_mount_point=$(echo "$iso_mount_output" | grep -o '/Volumes/.*' | cut -f 1- | sed 's/ /\\ /g')
 
 check_iso
 check_target
 install_windows
 install_bootloader
+
+diskutil unmount "$efi_mount_point" >/dev/null
+diskutil unmount "$iso_mount_point" >/dev/null

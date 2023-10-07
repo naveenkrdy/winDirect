@@ -83,7 +83,7 @@ if [[ -z "$efi_mount_point" ]]; then
     efi_mount_point=$(LC_ALL=C diskutil info "$efi_device" 2>/dev/null | sed -n 's/.*Mount Point: *//p')
     code=$?
 fi
-echo
+
 # echo "($efi_device)" $efi_mount_point 
-echo $efi_mount_point 
+echo $efi_mount_point
 exit $code
