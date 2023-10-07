@@ -208,5 +208,5 @@ iso_volume_name=$(echo "$iso_mount_output" | grep -o '/Volumes/.*' | cut -f 1- |
 
 check_iso
 check_target
-# install_windows
+install_windows
 install_bootloader
